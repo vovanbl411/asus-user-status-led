@@ -106,9 +106,49 @@ matched; sink-monitor path rejected). The Niri snippet syntax passed
 `niri validate` (niri 26.04). The daemon's LED write-permission startup
 probe fails clearly on unwritable/missing paths (offline) and its
 write-only open succeeds against the real LED (no write performed;
-`root:user-status-led` `0660`). The systemd unit was not machine-verified
-(executable not installed).
+`root:user-status-led` `0660`).
 
-Next gate — live acceptance on the ASUS ExpertBook B5402CBA. Not accepted
-yet: AUTO predicate behaviour with real audio sessions, Fn+1 cycling
-through the utility, restart flicker, reboot/login lifecycle.
+## Live acceptance — first run
+
+Manual modes PASS on the ASUS ExpertBook B5402CBA:
+
+```text
+permissions ........ PASS
+service ............ PASS
+busy -> LED ON ..... PASS
+off -> LED OFF ..... PASS
+mode persistence ... PASS
+```
+
+AUTO baseline FAIL — real BLOCKER:
+
+- `mode=auto`: daemon CPU ≈ 67%, 32 CPU seconds after ~23 seconds
+  runtime; `pw-dump --monitor` stays running while plain `pw-dump`
+  instances are spawned continuously;
+- `mode=off`: daemon CPU ≈ 0%, no `pw-dump` processes;
+- root cause: every complete `pw-dump --monitor` JSON value triggered a
+  fresh plain `pw-dump`; the snapshot helper is itself a PipeWire client,
+  so its Client add/remove events re-triggered snapshots in a
+  self-sustaining feedback loop.
+
+The machine is intentionally left in `off`.
+
+## AUTO feedback-loop fix
+
+Implemented: monitor events are filtered before any snapshot. Only a
+typed Node/Link event, or a type-less removal (`{ "id": N, "info": null }`)
+whose `N` is in the Node/Link ID set from the last snapshot, triggers a
+fresh authoritative `pw-dump`. That ID set exists solely to classify
+type-less removals, is replaced wholesale after every snapshot, and is
+not a topology cache. No polling, debounce, or rate limiting was added.
+
+Static validation of the fix passed: `git diff --check`, `py_compile`,
+`--help`, missing-state check, and synthetic filtering cases (Client-only
+event ignored; typed Node/Link events relevant; known-ID removal
+relevant; unknown-ID removal ignored; snapshot ID collection includes
+Nodes/Links and excludes Clients; AUTO predicate unchanged).
+
+AUTO live acceptance remains OPEN — the fix is implemented and
+static-validated only; it must be installed and tested on hardware
+before AUTO may be marked PASS. Also still open: Fn+1 cycling through
+the utility, restart flicker, reboot/login lifecycle.

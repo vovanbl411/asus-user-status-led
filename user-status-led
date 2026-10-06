@@ -20,6 +20,7 @@ MODES = ("auto", "busy", "off")
 CYCLE_NEXT = {"auto": "busy", "busy": "off", "off": "auto"}
 SERVICE = "user-status-led.service"
 LED_BRIGHTNESS = "/sys/class/leds/:status/brightness"
+RELEVANT_TYPES = ("PipeWire:Interface:Node", "PipeWire:Interface:Link")
 
 
 def fail(message):
@@ -148,7 +149,37 @@ def evaluate_auto(objects):
     return False
 
 
-def apply_auto(led):
+def collect_relevant_object_ids(objects):
+    """IDs of every Node and Link in a full snapshot. Exists only to
+    classify type-less monitor removal events; it is not a topology cache
+    and is replaced wholesale after every fresh snapshot."""
+    ids = set()
+    for obj in objects:
+        if isinstance(obj, dict) and obj.get("type") in RELEVANT_TYPES:
+            ids.add(obj.get("id"))
+    return ids
+
+
+def monitor_event_is_relevant(event, known_ids):
+    """True when a monitor event can affect the AUTO predicate.
+
+    A plain pw-dump snapshot is itself a PipeWire client, so each snapshot
+    produces Client add/remove monitor events; without filtering those
+    would trigger further snapshots in a self-sustaining wake-up loop.
+    """
+    objects = event if isinstance(event, list) else (event,)
+    for obj in objects:
+        if not isinstance(obj, dict):
+            continue
+        if obj.get("type") in RELEVANT_TYPES:
+            return True
+        if obj.get("info") is None and obj.get("id") in known_ids:
+            return True
+    return False
+
+
+def snapshot_objects():
+    """Objects from a fresh authoritative plain pw-dump."""
     try:
         result = subprocess.run(["pw-dump"], capture_output=True,
                                 encoding="utf-8")
@@ -159,10 +190,17 @@ def apply_auto(led):
             f"exit status {result.returncode}"
         raise RuntimeError(f"pw-dump failed: {detail}")
     try:
-        objects = json.loads(result.stdout)
+        return json.loads(result.stdout)
     except json.JSONDecodeError as e:
         raise RuntimeError(f"cannot parse pw-dump output: {e}") from e
+
+
+def apply_auto(led):
+    """Apply AUTO from a fresh snapshot; return the new known Node/Link
+    ID set for classifying later type-less removal events."""
+    objects = snapshot_objects()
     led.write(1 if evaluate_auto(objects) else 0)
+    return collect_relevant_object_ids(objects)
 
 
 # --------------------------------------------------------------- monitor
@@ -270,12 +308,14 @@ def cmd_daemon(_args):
         elif mode == "off":
             led.write(0)
         else:
-            apply_auto(led)
+            known_ids = apply_auto(led)
             monitor = start_monitor()
-            for _event in iter_top_level_json(monitor.stdout):
+            for event in iter_top_level_json(monitor.stdout):
                 if stopping.is_set():
                     break
-                apply_auto(led)
+                if not monitor_event_is_relevant(event, known_ids):
+                    continue
+                known_ids = apply_auto(led)
             if not stopping.is_set():
                 status = monitor.poll()
                 if status is None:

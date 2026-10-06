@@ -8,10 +8,12 @@ the alternatives were rejected. It is a design document, not a research
 diary: only the evidence that shaped the architecture is kept.
 
 Status: the design is accepted and v0 now implements it: CLI, daemon,
-systemd user service, udev rule, and Niri binding example. End-to-end
-live acceptance on hardware is still pending, and restart flicker has
-not yet been evaluated. See `CHECKPOINT.md` for current verified state
-and `AGENTS.md` for the stable project contract.
+systemd user service, udev rule, and Niri binding example. First live
+acceptance on hardware passed for the manual modes (permissions, service,
+`busy`/`off`, persistence); `auto` failed with a self-induced
+monitor/snapshot CPU loop, whose fix — relevant-event filtering — is
+implemented and awaits live re-verification. See `CHECKPOINT.md` for
+current verified state and `AGENTS.md` for the stable project contract.
 
 ## 1. Purpose and scope
 
@@ -218,7 +220,7 @@ because no verified requirement exists for it.
 ```text
 pw-dump --monitor
     ↓
-event / wake-up notification
+filter relevant Node/Link event
     ↓
 plain pw-dump
     ↓
@@ -246,12 +248,26 @@ Accepted design:
 - do NOT use periodic polling;
 - do NOT use direct Python PipeWire bindings in v0;
 - use the monitor only to wake up and re-evaluate;
-- use a fresh plain `pw-dump` snapshot as the source of truth.
+- use a fresh plain `pw-dump` snapshot as the source of truth;
+- ignore monitor events that cannot affect AUTO.
+
+Event filtering. A snapshot is triggered only by an event that contains a
+typed `PipeWire:Interface:Node` or `PipeWire:Interface:Link` object, or a
+type-less removal (`{ "id": N, "info": null }`) whose `N` is in the
+Node/Link ID set collected from the last snapshot. Arbitrary monitor events
+must not trigger snapshots: `pw-dump` itself is a PipeWire client, so every
+snapshot produces Client add/remove events, and acting on them creates a
+self-induced monitor/snapshot feedback loop. This is not hypothetical — the
+first live acceptance measured roughly 67% daemon CPU in `auto` caused by
+exactly that loop. The retained Node/Link ID set is the only state carried
+between snapshots: it exists solely to classify type-less removal events
+and is replaced wholesale after every fresh snapshot; it is not an
+incremental topology cache.
 
 This intentionally trades a small amount of extra process work on
 relatively rare graph changes for much simpler correctness: a full re-dump
-after every wakeup cannot drift from PipeWire's actual state, while an
-incremental cache can.
+after every relevant wakeup cannot drift from PipeWire's actual state,
+while an incremental cache can.
 
 ## 9. Privilege boundary
 
@@ -391,11 +407,13 @@ exists: the `user-status-led` executable (CLI and daemon, Python 3
 standard library only), `systemd/user-status-led.service`,
 `udev/70-asus-user-status-led.rules`, and `niri/user-status-led.kdl`.
 
-The implementation has passed static validation only (compilation, CLI
-surface, missing-state behaviour, offline checks of the monitor parser
-and the AUTO predicate). It has NOT undergone end-to-end live acceptance
-on hardware; restart flicker has not been evaluated.
+First live acceptance on the ASUS ExpertBook B5402CBA: permissions,
+service startup, `busy`/`off` LED control, and mode persistence all
+PASS. `auto` FAILED with a self-induced monitor/snapshot feedback loop
+(severe daemon CPU); the correction — filtering monitor events down to
+Node/Link changes relevant to AUTO — is implemented and statically
+validated, but NOT yet verified on hardware.
 
-The next project step is live acceptance on the ASUS ExpertBook B5402CBA:
-AUTO behaviour with real audio sessions, Fn+1 cycling through the
-utility, restart flicker, and the reboot/login lifecycle.
+The next project step is live re-acceptance of `auto` with real audio
+sessions, plus Fn+1 cycling through the utility, restart flicker, and
+the reboot/login lifecycle.

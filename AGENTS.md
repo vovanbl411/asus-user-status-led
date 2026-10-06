@@ -98,13 +98,32 @@ because no verified requirement exists for it.
 ## PipeWire observation model
 
 - `pw-dump --monitor` is used only as an event/wakeup source.
+- Monitor events are filtered: a fresh authoritative snapshot is taken only
+  for events that can affect the AUTO predicate.
 - Regular `pw-dump` is the authoritative full snapshot used to evaluate the
   current AUTO state.
+
+Event filtering rules:
+
+- an event containing a typed `PipeWire:Interface:Node` or
+  `PipeWire:Interface:Link` object is relevant;
+- a type-less removal event (`{ "id": N, "info": null }`) is relevant only
+  when `N` is in the Node/Link ID set collected from the last authoritative
+  snapshot;
+- that ID set exists solely to classify type-less removal events, is
+  replaced wholesale after every fresh snapshot, and is not an incremental
+  topology cache;
+- events containing only unrelated object types (Client, Device, Module,
+  Metadata) must not cause re-evaluation — in particular the Client
+  add/remove events produced by snapshot helpers themselves.
 
 Reason: `pw-dump --monitor` outputs an initial full JSON array and then
 additional JSON arrays describing graph changes and removals. Maintaining a
 custom incremental PipeWire object cache is unnecessary complexity for this
-project.
+project. Unfiltered events are also incorrect: every plain `pw-dump`
+snapshot is itself a PipeWire client, so its Client add/remove events would
+induce further snapshots in a self-sustaining feedback loop (observed on
+hardware as a severe CPU loop in `auto`).
 
 Do not implement a custom graph synchronizer unless future evidence requires
 it.

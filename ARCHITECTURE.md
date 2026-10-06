@@ -7,11 +7,11 @@ User-status LED is controlled end-to-end, which parts are verified, and why
 the alternatives were rejected. It is a design document, not a research
 diary: only the evidence that shaped the architecture is kept.
 
-Status: the design is accepted; the hardware and runtime prerequisites
-and the design assumptions have been validated on the target system.
-The userspace implementation does not exist yet and therefore has not
-undergone end-to-end validation. See `CHECKPOINT.md` for current verified
-state and `AGENTS.md` for the stable project contract.
+Status: the design is accepted and v0 now implements it: CLI, daemon,
+systemd user service, udev rule, and Niri binding example. End-to-end
+live acceptance on hardware is still pending, and restart flicker has
+not yet been evaluated. See `CHECKPOINT.md` for current verified state
+and `AGENTS.md` for the stable project contract.
 
 ## 1. Purpose and scope
 
@@ -103,7 +103,7 @@ ${XDG_STATE_HOME:-~/.local/state}/user-status-led/mode
 
 Missing state means `auto`.
 
-Accepted future CLI surface — this is accepted design, not implemented yet:
+Accepted CLI surface (implemented in v0):
 
 - `user-status-led status`
 - `user-status-led set auto`
@@ -304,7 +304,7 @@ already been verified on hardware.
 
 ## 10. Process model
 
-Accepted future process model:
+Process model (implemented in v0):
 
 - one Python 3 stdlib-only executable;
 - the same executable exposes CLI and daemon behaviour;
@@ -334,14 +334,15 @@ Fn+1
 
 `XF86Display` is currently free in the verified active Niri configuration.
 
-Accepted future binding:
+Accepted binding:
 
 ```text
 XF86Display -> user-status-led cycle
 ```
 
-Exact Niri configuration syntax is intentionally kept out of this document
-until it is verified.
+An example snippet lives in `niri/user-status-led.kdl` for insertion
+into an existing `binds { }` section. The binding itself is part of the
+user's Niri configuration and is pending live verification.
 
 ## 12. Component boundaries
 
@@ -385,11 +386,16 @@ PipeWire:
 
 ## 14. Current implementation status
 
-Architecture and design are accepted. Hardware and runtime prerequisites
-and the design assumptions have been validated on the target system.
+Architecture and design are accepted. The v0 userspace implementation
+exists: the `user-status-led` executable (CLI and daemon, Python 3
+standard library only), `systemd/user-status-led.service`,
+`udev/70-asus-user-status-led.rules`, and `niri/user-status-led.kdl`.
 
-The userspace implementation does NOT exist yet and has not undergone
-end-to-end validation.
+The implementation has passed static validation only (compilation, CLI
+surface, missing-state behaviour, offline checks of the monitor parser
+and the AUTO predicate). It has NOT undergone end-to-end live acceptance
+on hardware; restart flicker has not been evaluated.
 
-The next project step is implementing minimal v0 according to `AGENTS.md`,
-followed by live acceptance on hardware.
+The next project step is live acceptance on the ASUS ExpertBook B5402CBA:
+AUTO behaviour with real audio sessions, Fn+1 cycling through the
+utility, restart flicker, and the reboot/login lifecycle.

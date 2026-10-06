@@ -1,0 +1,354 @@
+#!/usr/bin/env python3
+"""ASUS User-status LED: userspace policy CLI and daemon.
+
+Modes: auto (default), busy, off. The persisted mode file under XDG state
+storage is the single source of truth; mode changes reach the daemon by
+restarting the systemd user service that runs this same executable.
+"""
+
+import argparse
+import json
+import os
+import signal
+import subprocess
+import sys
+import tempfile
+import threading
+
+PROG = "user-status-led"
+MODES = ("auto", "busy", "off")
+CYCLE_NEXT = {"auto": "busy", "busy": "off", "off": "auto"}
+SERVICE = "user-status-led.service"
+LED_BRIGHTNESS = "/sys/class/leds/:status/brightness"
+
+
+def fail(message):
+    print(f"{PROG}: {message}", file=sys.stderr)
+    sys.exit(1)
+
+
+# ----------------------------------------------------------------- state
+
+
+def state_dir():
+    base = os.environ.get("XDG_STATE_HOME") or os.path.join(
+        os.path.expanduser("~"), ".local", "state")
+    return os.path.join(base, PROG)
+
+
+def mode_path():
+    return os.path.join(state_dir(), "mode")
+
+
+def read_mode():
+    try:
+        with open(mode_path(), encoding="utf-8") as f:
+            value = f.read().strip()
+    except FileNotFoundError:
+        return "auto"
+    if value not in MODES:
+        fail(f"invalid mode {value!r} in {mode_path()}; expected one of: "
+             + ", ".join(MODES))
+    return value
+
+
+def write_mode(mode):
+    directory = state_dir()
+    os.makedirs(directory, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=directory, prefix=".mode.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(mode + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, mode_path())
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+# ------------------------------------------------------------------- LED
+
+
+class Led:
+    """Binary LED state with redundant-write avoidance."""
+
+    def __init__(self):
+        # Probe write access up front: with the redundant-write skip, a
+        # mode that matches the current LED state would otherwise never
+        # exercise the LED and a broken permission setup would go unnoticed.
+        try:
+            fd = os.open(LED_BRIGHTNESS, os.O_WRONLY)
+        except OSError as e:
+            raise RuntimeError(f"cannot open {LED_BRIGHTNESS} for writing: "
+                               f"{e.strerror or e}") from e
+        os.close(fd)
+        self.applied = None
+        try:
+            with open(LED_BRIGHTNESS) as f:
+                self.applied = int(f.read().strip())
+        except (OSError, ValueError):
+            self.applied = None
+
+    def write(self, value):
+        if value not in (0, 1):
+            raise RuntimeError(f"internal error: invalid LED value {value!r}")
+        if self.applied == value:
+            return
+        try:
+            with open(LED_BRIGHTNESS, "w") as f:
+                f.write(str(value))
+        except OSError as e:
+            raise RuntimeError(
+                f"cannot write {LED_BRIGHTNESS}: {e.strerror or e}") from e
+        self.applied = value
+
+    def off_best_effort(self):
+        try:
+            self.write(0)
+        except RuntimeError as e:
+            print(f"{PROG}: warning: could not turn LED off: {e}",
+                  file=sys.stderr)
+
+
+# ------------------------------------------------------------------ AUTO
+
+
+def evaluate_auto(objects):
+    """True when an active link connects an Audio/Source node to a
+    running Stream/Input/Audio node."""
+    sources = set()
+    running_inputs = set()
+    links = []
+    for obj in objects:
+        if not isinstance(obj, dict):
+            continue
+        info = obj.get("info")
+        if not isinstance(info, dict):
+            continue
+        obj_type = obj.get("type")
+        if obj_type == "PipeWire:Interface:Node":
+            media_class = (info.get("props") or {}).get("media.class")
+            if media_class == "Audio/Source":
+                sources.add(obj.get("id"))
+            elif (media_class == "Stream/Input/Audio"
+                    and info.get("state") == "running"):
+                running_inputs.add(obj.get("id"))
+        elif obj_type == "PipeWire:Interface:Link":
+            links.append((info.get("output-node-id"),
+                          info.get("input-node-id"),
+                          info.get("state")))
+    for output, input_, state in links:
+        if (state == "active" and output in sources
+                and input_ in running_inputs):
+            return True
+    return False
+
+
+def apply_auto(led):
+    try:
+        result = subprocess.run(["pw-dump"], capture_output=True,
+                                encoding="utf-8")
+    except OSError as e:
+        raise RuntimeError(f"cannot run pw-dump: {e}") from e
+    if result.returncode != 0:
+        detail = (result.stderr or "").strip() or \
+            f"exit status {result.returncode}"
+        raise RuntimeError(f"pw-dump failed: {detail}")
+    try:
+        objects = json.loads(result.stdout)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"cannot parse pw-dump output: {e}") from e
+    led.write(1 if evaluate_auto(objects) else 0)
+
+
+# --------------------------------------------------------------- monitor
+
+
+def iter_top_level_json(stream):
+    """Yield each complete top-level JSON value from a text stream.
+
+    pw-dump --monitor writes one JSON array per event, separated only by
+    whitespace, so line boundaries say nothing about value boundaries.
+    Completion is detected by scanning JSON structure (string state and
+    container nesting depth) over each new chunk; every completed value is
+    then decoded exactly once with raw_decode, keeping the total cost
+    linear in the monitor output even for the initial full-graph array.
+    """
+    decoder = json.JSONDecoder()
+    parts = []        # buffered text of the value currently being scanned
+    depth = 0         # container nesting depth inside that value
+    in_string = False
+    escaped = False
+    for chunk in stream:
+        pos = 0
+        n = len(chunk)
+        while pos < n:
+            end = None
+            i = pos
+            while i < n:
+                ch = chunk[i]
+                i += 1
+                if in_string:
+                    if escaped:
+                        escaped = False
+                    elif ch == "\\":
+                        escaped = True
+                    elif ch == '"':
+                        in_string = False
+                    continue
+                if ch == '"':
+                    in_string = True
+                elif ch in "[{":
+                    depth += 1
+                elif ch in "]}":
+                    depth -= 1
+                    if depth == 0:
+                        end = i
+                        break
+                elif depth == 0 and not ch.isspace():
+                    raise RuntimeError("unexpected top-level content in "
+                                       "pw-dump --monitor output")
+            if end is None:
+                parts.append(chunk[pos:])
+                break
+            text = "".join(parts) + chunk[pos:end]
+            try:
+                value, _ = decoder.raw_decode(text.lstrip())
+            except json.JSONDecodeError as e:
+                raise RuntimeError(
+                    f"cannot parse pw-dump --monitor output: {e}") from e
+            yield value
+            parts = []
+            pos = end
+
+
+def start_monitor():
+    try:
+        return subprocess.Popen(["pw-dump", "--monitor", "--no-colors"],
+                                stdout=subprocess.PIPE, encoding="utf-8")
+    except OSError as e:
+        raise RuntimeError(f"cannot run pw-dump: {e}") from e
+
+
+def stop_monitor(monitor):
+    if monitor.poll() is None:
+        monitor.terminate()
+    try:
+        monitor.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        monitor.kill()
+        monitor.wait()
+    if monitor.stdout is not None:
+        monitor.stdout.close()
+
+
+# ---------------------------------------------------------------- daemon
+
+
+def cmd_daemon(_args):
+    mode = read_mode()
+    led = Led()
+    stopping = threading.Event()
+    monitor = None
+
+    def request_stop(signum, frame):
+        stopping.set()
+        if monitor is not None:
+            monitor.terminate()
+
+    signal.signal(signal.SIGTERM, request_stop)
+    signal.signal(signal.SIGINT, request_stop)
+
+    error = None
+    try:
+        if mode == "busy":
+            led.write(1)
+        elif mode == "off":
+            led.write(0)
+        else:
+            apply_auto(led)
+            monitor = start_monitor()
+            for _event in iter_top_level_json(monitor.stdout):
+                if stopping.is_set():
+                    break
+                apply_auto(led)
+            if not stopping.is_set():
+                status = monitor.poll()
+                if status is None:
+                    monitor.terminate()
+                    status = monitor.wait()
+                raise RuntimeError("pw-dump --monitor exited unexpectedly "
+                                   f"with status {status}")
+        stopping.wait()
+    except Exception as e:
+        error = e
+    if monitor is not None:
+        stop_monitor(monitor)
+    led.off_best_effort()
+    if error is not None:
+        raise error
+
+
+# ------------------------------------------------------------------- CLI
+
+
+def restart_service():
+    try:
+        subprocess.run(["systemctl", "--user", "restart", SERVICE],
+                       check=True)
+    except FileNotFoundError as e:
+        raise RuntimeError("systemctl not found") from e
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(
+            f"systemctl --user restart {SERVICE} failed with exit status "
+            f"{e.returncode}; the persisted mode will be applied on the "
+            "next successful service start") from e
+
+
+def cmd_status(_args):
+    print(read_mode())
+
+
+def cmd_set(args):
+    write_mode(args.mode)
+    restart_service()
+
+
+def cmd_cycle(_args):
+    write_mode(CYCLE_NEXT[read_mode()])
+    restart_service()
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog=PROG, description="Control the ASUS User-status LED.")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    p = subparsers.add_parser("status", help="print the selected mode")
+    p.set_defaults(func=cmd_status)
+
+    p = subparsers.add_parser("set", help="select a mode and apply it")
+    p.add_argument("mode", choices=MODES)
+    p.set_defaults(func=cmd_set)
+
+    p = subparsers.add_parser("cycle", help="advance to the next mode "
+                                            "(auto -> busy -> off -> auto)")
+    p.set_defaults(func=cmd_cycle)
+
+    p = subparsers.add_parser(
+        "daemon", help="run the daemon (used by the systemd user service)")
+    p.set_defaults(func=cmd_daemon)
+
+    args = parser.parse_args()
+    try:
+        args.func(args)
+    except Exception as e:
+        fail(str(e))
+
+
+if __name__ == "__main__":
+    main()

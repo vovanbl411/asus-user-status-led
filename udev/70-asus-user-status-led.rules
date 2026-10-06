@@ -1,0 +1,8 @@
+# ASUS User-status LED write permission for the unprivileged
+# user-status-led daemon.
+#
+# Requires the group "user-status-led" to exist and the daemon user to be a
+# member of it. Applies only to the brightness attribute of the ASUS status
+# LED; no other LED device is affected.
+
+ACTION=="add", SUBSYSTEM=="leds", KERNEL==":status", KERNELS=="asus-nb-wmi", DRIVERS=="asus-nb-wmi", RUN+="/usr/bin/chgrp user-status-led /sys%p/brightness", RUN+="/usr/bin/chmod 0660 /sys%p/brightness"

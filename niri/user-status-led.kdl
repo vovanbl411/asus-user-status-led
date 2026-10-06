@@ -1,0 +1,12 @@
+// Example asus-user-status-led binding for Niri.
+//
+// This is a snippet, not a complete Niri configuration: insert the
+// XF86Display line into the binds { } section of your existing config.
+//
+// Fn+1 arrives as XF86Display (verified on the ASUS ExpertBook B5402CBA)
+// and cycles auto -> busy -> off -> auto. Niri repeats bindings while the
+// key is held, so repeat=false keeps one press to exactly one cycle.
+// The tilde is fine as is: Niri expands a leading ~ in the spawn program
+// name.
+
+XF86Display repeat=false { spawn "~/.local/bin/user-status-led" "cycle"; }

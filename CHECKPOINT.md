@@ -87,7 +87,28 @@ documentation architecture gate is closed.
 
 Public documentation is bilingual (`README.md`/`README.ru.md`,
 `ARCHITECTURE.md`/`ARCHITECTURE.ru.md`); `AGENTS.md` and this file remain
-English-only. No userspace implementation exists yet.
+English-only.
 
-Next step: implement the minimal v0 userspace component according to
-`AGENTS.md`, then run live acceptance on hardware.
+The v0 userspace implementation exists:
+
+- `user-status-led` — CLI and daemon, Python 3 standard library only;
+- `systemd/user-status-led.service` — systemd user unit;
+- `udev/70-asus-user-status-led.rules` — narrow LED permission rule;
+- `niri/user-status-led.kdl` — Niri binding example.
+
+Static validation passed: `py_compile`, `--help`, missing-state behaviour
+(`status` prints `auto` with a clean `XDG_STATE_HOME`), invalid-state
+rejection, atomic persistence with no rollback on restart failure, and
+offline synthetic checks of the monitor JSON parser and the AUTO
+predicate. The parser and predicate were also checked against a live
+read-only `pw-dump`/`pw-dump --monitor` session (real microphone link
+matched; sink-monitor path rejected). The Niri snippet syntax passed
+`niri validate` (niri 26.04). The daemon's LED write-permission startup
+probe fails clearly on unwritable/missing paths (offline) and its
+write-only open succeeds against the real LED (no write performed;
+`root:user-status-led` `0660`). The systemd unit was not machine-verified
+(executable not installed).
+
+Next gate — live acceptance on the ASUS ExpertBook B5402CBA. Not accepted
+yet: AUTO predicate behaviour with real audio sessions, Fn+1 cycling
+through the utility, restart flicker, reboot/login lifecycle.

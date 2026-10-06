@@ -6,8 +6,8 @@ Control the ASUS User-status LED on supported ASUS laptops from userspace.
 In `auto` mode the LED reflects an active microphone capture session;
 `busy` and `off` force the LED on or off manually.
 
-Current stage: design complete, implementation not started. The utility
-described here does not exist yet.
+Current stage: v0 implementation exists; live hardware acceptance is
+pending, so it is not yet considered production-ready.
 
 ## Verified on hardware
 
@@ -35,10 +35,58 @@ described here does not exist yet.
 - Fn+1 (`XF86Display`, currently unbound) cycles
   `auto -> busy -> off -> auto`.
 
-## Not implemented yet
+## Installation
 
-Everything: the daemon, the CLI, the systemd service, the udev rule, and
-the Niri binding.
+The implementation targets a single user on a Linux system with systemd.
+
+1. Group and permissions (once, as administrator). The daemon runs
+   unprivileged and relies on a dedicated group; nothing in this
+   repository creates the group or edits group membership:
+
+    ```bash
+    groupadd --system user-status-led    # skip if the group already exists
+    usermod -aG user-status-led <user>
+    ```
+
+2. Install the udev rule and apply it to the LED:
+
+    ```bash
+    install -m 644 udev/70-asus-user-status-led.rules /etc/udev/rules.d/
+    udevadm control --reload
+    udevadm trigger --action=add /sys/class/leds/:status
+    ```
+
+   The rule grants the group write access to
+   `/sys/class/leds/:status/brightness` only (`root:user-status-led`,
+   `0660`); no other LED is affected.
+
+3. Install the executable and the user service:
+
+    ```bash
+    install -Dm755 user-status-led ~/.local/bin/user-status-led
+    install -Dm644 systemd/user-status-led.service ~/.config/systemd/user/user-status-led.service
+    systemctl --user daemon-reload
+    systemctl --user enable --now user-status-led.service
+    ```
+
+4. Optional: add the Fn+1 binding from `niri/user-status-led.kdl` to the
+   `binds { }` section of your Niri configuration.
+
+After a group-membership change, log out and back in (or start the
+service from a session where the new group applies) before step 3.
+
+## Usage
+
+```text
+user-status-led status                print the selected mode
+user-status-led set auto|busy|off     select a mode and apply it
+user-status-led cycle                 advance auto -> busy -> off -> auto
+```
+
+`set` and `cycle` persist the mode atomically under
+`${XDG_STATE_HOME:-~/.local/state}/user-status-led/mode` and restart the
+user service, which applies the new mode immediately. `status` only reads
+the persisted mode and does not touch the LED or the service.
 
 ## Prerequisites
 

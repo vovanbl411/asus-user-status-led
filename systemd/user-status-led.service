@@ -1,0 +1,9 @@
+[Unit]
+Description=ASUS User-status LED policy daemon
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/user-status-led daemon
+
+[Install]
+WantedBy=default.target

@@ -1,8 +1,10 @@
 # asus-user-status-led
 
+[Русская версия](README.ru.md)
+
 Control the ASUS User-status LED on supported ASUS laptops from userspace.
-The LED shows whether your microphone is in use, so people nearby can see
-when you are on a call.
+In `auto` mode the LED reflects an active microphone capture session;
+`busy` and `off` force the LED on or off manually.
 
 Current stage: design complete, implementation not started. The utility
 described here does not exist yet.
@@ -24,8 +26,8 @@ described here does not exist yet.
 - Python 3 standard library only: one unprivileged user daemon plus a small
   CLI in the same executable.
 - A systemd user service, one narrow udev rule, and a Niri binding example.
-- Modes: `busy` (LED on), `off` (LED off), and `auto` (default), where the
-  LED follows microphone activity.
+- Modes: `busy` (LED forced on), `off` (LED forced off), and `auto`
+  (default), where the LED follows microphone capture sessions.
 - In `auto`, the LED is on while a real microphone (`Audio/Source`) feeds a
   running capture client (`Stream/Input/Audio`), observed through PipeWire.
   Muting the microphone inside an application does not turn the LED off
@@ -45,5 +47,4 @@ the Niri binding.
   separately and is not part of this repository).
 - PipeWire, for `auto` mode.
 
-See `AGENTS.md` for the project contract and `CHECKPOINT.md` for the
-verified evidence.
+See `ARCHITECTURE.md` for the detailed design.

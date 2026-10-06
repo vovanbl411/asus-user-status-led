@@ -81,7 +81,10 @@ Accepted implementation model:
 
 ## Current status
 
-Design is accepted. No implementation exists in this bootstrap commit.
+Design is accepted. Public documentation is bilingual
+(`README.md`/`README.ru.md`, `ARCHITECTURE.md`/`ARCHITECTURE.ru.md`);
+`AGENTS.md` and this file remain English-only. No implementation exists
+yet.
 
 Next step: implement the minimal v0 userspace component according to
 `AGENTS.md`.

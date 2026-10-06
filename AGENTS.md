@@ -176,3 +176,19 @@ Avoid redundant writes when the desired physical LED state has not changed.
 
 Turn the LED OFF (best effort) during clean shutdown so stale state is not
 intentionally left behind.
+
+## Documentation and languages
+
+- `AGENTS.md` and `CHECKPOINT.md` are English-only canonical internal
+  project files; do not create Russian mirrors for them.
+- Public-facing documentation is bilingual: English documents use the
+  normal `.md` name, Russian mirrors use `.ru.md`.
+- English is authoritative if an accidental semantic mismatch appears.
+- Mirrored EN/RU documents must be updated together whenever their shared
+  content changes.
+- Translation must preserve meaning, scope, status, caveats, and
+  architecture; it must not introduce independent facts or decisions.
+- Mirrored public documents carry reciprocal language links near the top:
+  `README.md` ↔ `README.ru.md`, `ARCHITECTURE.md` ↔ `ARCHITECTURE.ru.md`.
+- Detailed architecture lives in `ARCHITECTURE.md` (+ mirror); current
+  verified state lives in `CHECKPOINT.md`.

@@ -47,4 +47,9 @@ the Niri binding.
   separately and is not part of this repository).
 - PipeWire, for `auto` mode.
 
-See `ARCHITECTURE.md` for the detailed design.
+## Documentation
+
+- [ARCHITECTURE.md](ARCHITECTURE.md) — detailed design (Russian version:
+  [ARCHITECTURE.ru.md](ARCHITECTURE.ru.md)).
+- [CHECKPOINT.md](CHECKPOINT.md) — current verified state (English-only).
+- [AGENTS.md](AGENTS.md) — project contract (English-only).

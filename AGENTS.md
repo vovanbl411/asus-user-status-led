@@ -51,6 +51,7 @@ The initial implementation uses:
 - one unprivileged user daemon;
 - a small CLI exposed by the same executable;
 - a systemd user service;
+- mode changes propagated to the daemon by restarting that service;
 - one narrow udev rule for LED write permissions;
 - a Niri binding example for `XF86Display`.
 
@@ -118,7 +119,7 @@ ${XDG_STATE_HOME:-~/.local/state}/user-status-led/mode
 
 If no state exists, use `auto`.
 
-Accepted CLI surface (documented only; not implemented yet):
+Accepted CLI surface:
 
 - `user-status-led status`
 - `user-status-led set auto`
@@ -126,8 +127,31 @@ Accepted CLI surface (documented only; not implemented yet):
 - `user-status-led set off`
 - `user-status-led cycle`
 
-Do not implement these commands in the bootstrap commit; the interface is
-documented for the future implementation.
+The initial implementation must preserve this CLI surface.
+
+## CLI-to-daemon control path
+
+The persisted mode file is the single source of truth for the daemon.
+
+- `user-status-led set <mode>` and `user-status-led cycle`:
+  1. determine the new mode;
+  2. atomically persist it;
+  3. run `systemctl --user restart user-status-led.service`;
+  4. exit non-zero if the restart fails.
+- Do not roll the persisted mode back if the restart fails; the requested
+  mode is applied on the next successful service start.
+- `user-status-led status` only reads the persisted mode and never restarts
+  the service.
+- On startup the daemon reads the persisted mode, evaluates and applies the
+  LED state immediately, and only then enters PipeWire monitoring.
+
+The initial implementation intentionally propagates mode changes through a
+systemd service restart instead of DBus, custom socket IPC, polling, or a
+signal/reload mechanism.
+
+Do not introduce a signal/reload mechanism unless live acceptance
+demonstrates a concrete problem (for example, objectionable visible
+flicker). A brief LED-off transition during restart is accepted for v0.
 
 ## Fn+1 integration
 

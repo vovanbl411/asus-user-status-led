@@ -81,10 +81,13 @@ Accepted implementation model:
 
 ## Current status
 
-Design is accepted. Public documentation is bilingual
-(`README.md`/`README.ru.md`, `ARCHITECTURE.md`/`ARCHITECTURE.ru.md`);
-`AGENTS.md` and this file remain English-only. No implementation exists
-yet.
+Design is accepted, including the CLI-to-daemon v0 control path: atomic
+mode persistence followed by a systemd user service restart. The
+documentation architecture gate is closed.
+
+Public documentation is bilingual (`README.md`/`README.ru.md`,
+`ARCHITECTURE.md`/`ARCHITECTURE.ru.md`); `AGENTS.md` and this file remain
+English-only. No userspace implementation exists yet.
 
 Next step: implement the minimal v0 userspace component according to
-`AGENTS.md`.
+`AGENTS.md`, then run live acceptance on hardware.

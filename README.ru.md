@@ -50,5 +50,10 @@
   ядра разрабатывается отдельно и не входит в этот репозиторий).
 - PipeWire — для режима `auto`.
 
-Подробный дизайн — в `ARCHITECTURE.ru.md` (английская версия —
-`ARCHITECTURE.md`).
+## Документация
+
+- [ARCHITECTURE.ru.md](ARCHITECTURE.ru.md) — подробный дизайн (английская
+  версия: [ARCHITECTURE.md](ARCHITECTURE.md)).
+- [CHECKPOINT.md](CHECKPOINT.md) — текущее проверенное состояние (на
+  английском).
+- [AGENTS.md](AGENTS.md) — контракт проекта (на английском).

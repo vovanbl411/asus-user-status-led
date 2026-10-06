@@ -79,7 +79,7 @@ Accepted implementation model:
 - plain `pw-dump` = source of truth;
 - no local incremental graph cache.
 
-## Current status
+## v0 implementation
 
 Design is accepted, including the CLI-to-daemon v0 control path: atomic
 mode persistence followed by a systemd user service restart. The
@@ -94,61 +94,61 @@ The v0 userspace implementation exists:
 - `user-status-led` — CLI and daemon, Python 3 standard library only;
 - `systemd/user-status-led.service` — systemd user unit;
 - `udev/70-asus-user-status-led.rules` — narrow LED permission rule;
-- `niri/user-status-led.kdl` — Niri binding example.
+- `niri/user-status-led.kdl` — Niri binding, installed on the target
+  system.
 
-Static validation passed: `py_compile`, `--help`, missing-state behaviour
-(`status` prints `auto` with a clean `XDG_STATE_HOME`), invalid-state
-rejection, atomic persistence with no rollback on restart failure, and
-offline synthetic checks of the monitor JSON parser and the AUTO
-predicate. The parser and predicate were also checked against a live
-read-only `pw-dump`/`pw-dump --monitor` session (real microphone link
-matched; sink-monitor path rejected). The Niri snippet syntax passed
-`niri validate` (niri 26.04). The daemon's LED write-permission startup
-probe fails clearly on unwritable/missing paths (offline) and its
-write-only open succeeds against the real LED (no write performed;
-`root:user-status-led` `0660`).
+Static validation passed before live acceptance: `py_compile`, `--help`,
+missing-state and invalid-state behaviour, atomic persistence with no
+rollback on restart failure, offline synthetic checks of the monitor
+JSON parser, the AUTO predicate, and the relevant-event filtering, plus
+`niri validate` (niri 26.04).
 
-## Live acceptance — first run
-
-Manual modes PASS on the ASUS ExpertBook B5402CBA:
+## Live acceptance — ASUS ExpertBook B5402CBA
 
 ```text
-permissions ........ PASS
-service ............ PASS
-busy -> LED ON ..... PASS
-off -> LED OFF ..... PASS
-mode persistence ... PASS
+Manual modes ................ PASS
+AUTO idle ................... PASS
+pw-record capture ........... PASS
+Noctalia negative-control ... PASS
+Vesktop call ................ PASS
+Vesktop app mute ............ PASS
+Fn+1 mode cycle ............. PASS
+CPU-loop fix ................ PASS
+
+Restart flicker ............. OPEN
+Reboot/login lifecycle ...... OPEN
 ```
 
-AUTO baseline FAIL — real BLOCKER:
+- Manual modes: permissions, service, `busy` -> LED ON, `off` -> LED OFF,
+  mode persistence.
+- AUTO idle: brightness `0`, service active, one long-lived
+  `pw-dump --monitor --no-colors`, no plain `pw-dump` loop, daemon CPU
+  effectively idle (example: 393 ms CPU over 35 s, 16.7 MiB RSS).
+- Controlled capture: `pw-record` active -> LED ON; stopped -> LED OFF;
+  no CPU-loop regression.
+- Noctalia Spectrum active: LED stays OFF (sink-monitor path rejected),
+  CPU low.
+- Real Vesktop call: LED OFF before, ON during the call, ON through
+  application-level mute and unmute, OFF after leaving. The short PipeWire
+  teardown before the LED returns to `0` is normal observed behaviour.
+  Vesktop itself kept running, so AUTO follows the capture session, not
+  the process lifetime.
+- Fn+1 cycle: one press produces one mode transition
+  (`auto -> busy -> off -> auto`); `repeat=false` accepted. Returning to
+  `auto` during an active call immediately re-evaluates PipeWire and sets
+  brightness `1`. The service stayed active throughout.
+- Runtime health after cycling and audio activity: service active, one
+  `pw-dump --monitor`, no plain `pw-dump` loop, low daemon CPU (example:
+  1.979 s CPU over ~2 min 26 s wall time).
 
-- `mode=auto`: daemon CPU ≈ 67%, 32 CPU seconds after ~23 seconds
-  runtime; `pw-dump --monitor` stays running while plain `pw-dump`
-  instances are spawned continuously;
-- `mode=off`: daemon CPU ≈ 0%, no `pw-dump` processes;
-- root cause: every complete `pw-dump --monitor` JSON value triggered a
-  fresh plain `pw-dump`; the snapshot helper is itself a PipeWire client,
-  so its Client add/remove events re-triggered snapshots in a
-  self-sustaining feedback loop.
+Historical note: the first AUTO live test exposed a self-induced
+`pw-dump` monitor/snapshot feedback loop (roughly 67% daemon CPU).
+Relevant-event filtering fixed it; hardware re-acceptance passed.
 
-The machine is intentionally left in `off`.
+## Open items — next step
 
-## AUTO feedback-loop fix
-
-Implemented: monitor events are filtered before any snapshot. Only a
-typed Node/Link event, or a type-less removal (`{ "id": N, "info": null }`)
-whose `N` is in the Node/Link ID set from the last snapshot, triggers a
-fresh authoritative `pw-dump`. That ID set exists solely to classify
-type-less removals, is replaced wholesale after every snapshot, and is
-not a topology cache. No polling, debounce, or rate limiting was added.
-
-Static validation of the fix passed: `git diff --check`, `py_compile`,
-`--help`, missing-state check, and synthetic filtering cases (Client-only
-event ignored; typed Node/Link events relevant; known-ID removal
-relevant; unknown-ID removal ignored; snapshot ID collection includes
-Nodes/Links and excludes Clients; AUTO predicate unchanged).
-
-AUTO live acceptance remains OPEN — the fix is implemented and
-static-validated only; it must be installed and tested on hardware
-before AUTO may be marked PASS. Also still open: Fn+1 cycling through
-the utility, restart flicker, reboot/login lifecycle.
+- Restart flicker: `set`/`cycle` restarts work functionally, but no
+  explicit visual judgment has been made yet.
+- Reboot/login lifecycle: persisted mode after reboot, user service start
+  after login, udev permissions, AUTO startup, no CPU-loop regression,
+  and Fn+1 cycling after reboot.

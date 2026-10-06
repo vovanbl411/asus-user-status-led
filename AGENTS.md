@@ -181,10 +181,9 @@ Fn+1 -> firmware event 0x61 -> KEY_SWITCHVIDEOMODE -> XF86Display -> Niri
 ```
 
 - Niri sees clean press/release events.
-- `XF86Display` is currently free in the active Niri configuration.
 - No kernel input remapping is required.
 
-Future Niri integration binds `XF86Display` to `user-status-led cycle`.
+Niri integration binds `XF86Display` to `user-status-led cycle`.
 
 ## Privilege boundary
 

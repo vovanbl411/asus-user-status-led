@@ -6,20 +6,27 @@ Control the ASUS User-status LED on supported ASUS laptops from userspace.
 In `auto` mode the LED reflects an active microphone capture session;
 `busy` and `off` force the LED on or off manually.
 
-Current stage: v0 implementation exists; live hardware acceptance is
-pending, so it is not yet considered production-ready.
+Current stage: v0 is implemented and has passed live functional acceptance
+for manual modes, AUTO microphone detection, false-positive rejection, and
+Fn+1 integration on the ASUS ExpertBook B5402CBA. Reboot/login lifecycle
+and restart-flicker acceptance remain open, so it is not yet considered
+production-ready.
 
 ## Verified on hardware
 
 - ASUS ExpertBook B5402CBA (ASUS WMI device `0x00040019`).
 - The LED is exposed by the kernel as `/sys/class/leds/:status` with binary
   brightness (`0`/`1`); physical ON/OFF works.
-- Unprivileged writes to the LED work through a dedicated group and a narrow
-  udev rule, and survive reboot.
-- Fn+1 reaches Wayland/Niri as `XF86Display` with clean press/release events
-  and no binding conflict.
-- PipeWire semantics for detecting an active microphone session, including
-  the mute-while-session-active case.
+- Manual modes: `busy` forces the LED on, `off` forces it off, and the
+  selected mode persists across `set`/`cycle` restarts. Unprivileged writes
+  work through a dedicated group and a narrow udev rule, and survive
+  reboot.
+- `auto` operation: a controlled `pw-record` capture turns the LED on and
+  off with the session; the Noctalia Spectrum sink-monitor capture path is
+  rejected; a real Vesktop call keeps the LED on through application-level
+  muting and turns it off when the call ends.
+- Fn+1 reaches Niri as `XF86Display`; the repository binding is installed
+  and cycles `auto -> busy -> off -> auto`, one transition per press.
 
 ## Accepted design
 
@@ -32,8 +39,7 @@ pending, so it is not yet considered production-ready.
   running capture client (`Stream/Input/Audio`), observed through PipeWire.
   Muting the microphone inside an application does not turn the LED off
   while the capture session stays active.
-- Fn+1 (`XF86Display`, currently unbound) cycles
-  `auto -> busy -> off -> auto`.
+- Fn+1 (`XF86Display`) cycles `auto -> busy -> off -> auto`.
 
 ## Installation
 

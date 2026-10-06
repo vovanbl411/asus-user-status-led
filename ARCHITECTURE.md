@@ -7,13 +7,14 @@ User-status LED is controlled end-to-end, which parts are verified, and why
 the alternatives were rejected. It is a design document, not a research
 diary: only the evidence that shaped the architecture is kept.
 
-Status: the design is accepted and v0 now implements it: CLI, daemon,
-systemd user service, udev rule, and Niri binding example. First live
-acceptance on hardware passed for the manual modes (permissions, service,
-`busy`/`off`, persistence); `auto` failed with a self-induced
-monitor/snapshot CPU loop, whose fix — relevant-event filtering — is
-implemented and awaits live re-verification. See `CHECKPOINT.md` for
-current verified state and `AGENTS.md` for the stable project contract.
+Status: the design is accepted and v0 implements it: CLI, daemon, systemd
+user service, udev rule, and Niri binding. Live acceptance on the ASUS
+ExpertBook B5402CBA has passed for the manual modes, `auto` (idle,
+microphone capture, false-positive rejection, real call and mute
+semantics), and Fn+1 integration, including the relevant-event filtering
+fix. Remaining acceptance scope: restart-flicker visual judgment and the
+reboot/login lifecycle. See `CHECKPOINT.md` for current verified state
+and `AGENTS.md` for the stable project contract.
 
 ## 1. Purpose and scope
 
@@ -348,7 +349,8 @@ Fn+1
 → Niri
 ```
 
-`XF86Display` is currently free in the verified active Niri configuration.
+`XF86Display` carried no conflicting binding in the active Niri
+configuration, and the repository binding is now installed there.
 
 Accepted binding:
 
@@ -356,9 +358,11 @@ Accepted binding:
 XF86Display -> user-status-led cycle
 ```
 
-An example snippet lives in `niri/user-status-led.kdl` for insertion
-into an existing `binds { }` section. The binding itself is part of the
-user's Niri configuration and is pending live verification.
+The snippet in `niri/user-status-led.kdl` inserts the binding into an
+existing `binds { }` section. Verified live: one press produces one mode
+transition (`auto -> busy -> off -> auto`; `repeat=false` accepted), the
+service stays active, and returning to `auto` during an active call
+re-evaluates PipeWire immediately and lights the LED.
 
 ## 12. Component boundaries
 
@@ -407,13 +411,32 @@ exists: the `user-status-led` executable (CLI and daemon, Python 3
 standard library only), `systemd/user-status-led.service`,
 `udev/70-asus-user-status-led.rules`, and `niri/user-status-led.kdl`.
 
-First live acceptance on the ASUS ExpertBook B5402CBA: permissions,
-service startup, `busy`/`off` LED control, and mode persistence all
-PASS. `auto` FAILED with a self-induced monitor/snapshot feedback loop
-(severe daemon CPU); the correction — filtering monitor events down to
-Node/Link changes relevant to AUTO — is implemented and statically
-validated, but NOT yet verified on hardware.
+Live acceptance on the ASUS ExpertBook B5402CBA has passed for:
 
-The next project step is live re-acceptance of `auto` with real audio
-sessions, plus Fn+1 cycling through the utility, restart flicker, and
-the reboot/login lifecycle.
+- manual modes: `busy`/`off` LED control, mode persistence, permissions,
+  service operation;
+- `auto` idle: no CPU loop — one long-lived `pw-dump --monitor`, no
+  plain-`pw-dump` spawning, low daemon CPU (the feedback-loop fix is
+  verified on hardware);
+- controlled real microphone capture (`pw-record`): LED ON while
+  recording, OFF after stopping;
+- false-positive rejection: Noctalia Spectrum (sink-monitor capture)
+  keeps the LED OFF;
+- real Vesktop call: LED ON during the call, ON through application-level
+  mute, OFF after leaving (once the short, normal PipeWire teardown
+  settles);
+- Fn+1 integration end-to-end: `XF86Display` -> `user-status-led cycle`
+  -> atomic persistence -> service restart -> correct LED state, one
+  transition per press.
+
+Remaining acceptance scope:
+
+```text
+restart-flicker visual acceptance
+reboot/login lifecycle
+```
+
+Restart through `set`/`cycle` is functionally working; an explicit visual
+judgment of restart flicker has not yet been made. The reboot/login
+lifecycle (persisted mode, service start after login, udev permissions,
+AUTO startup, Fn+1 cycling) is unverified.
